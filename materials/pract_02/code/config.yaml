@@ -1,0 +1,49 @@
+# Application Configuration
+# Занятие 2: Окружение приложения, Docker и YAML
+
+server:
+  host: 0.0.0.0
+  port: 8000
+  debug: false
+  ssl:
+    enabled: false
+    cert: /etc/ssl/cert.pem
+    key: /etc/ssl/key.pem
+
+database:
+  host: db
+  port: 5432
+  name: mydb
+  user: user
+  password: secret
+  pool:
+    min: 5
+    max: 20
+    timeout: 30
+
+cache:
+  enabled: true
+  host: redis
+  port: 6379
+  ttl: 3600
+  prefix: "app:"
+
+logging:
+  level: info
+  file: /var/log/app/app.log
+  format: "%(asctime)s - %(name)s - %(levelname)s - %(message)s"
+
+features:
+  - authentication
+  - logging
+  - caching
+  - rate_limiting
+
+security:
+  jwt_secret: your-secret-key
+  jwt_expiry: 3600
+  cors:
+    enabled: true
+    origins:
+      - http://localhost:3000
+      - http://localhost:8080

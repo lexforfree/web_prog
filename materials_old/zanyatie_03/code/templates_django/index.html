@@ -1,0 +1,26 @@
+{% extends "base.html" %}
+
+{% block title %}Home - My Blog{% endblock %}
+
+{% block content %}
+<div class="hero">
+    <h1>Welcome to My Blog</h1>
+    <p>Sharing thoughts and ideas</p>
+    <a href="{% url 'posts_list' %}" class="btn btn-primary">View Posts</a>
+</div>
+
+<div class="features">
+    <div class="feature-card">
+        <h3>Latest Posts</h3>
+        <p>Read our most recent articles</p>
+    </div>
+    <div class="feature-card">
+        <h3>Categories</h3>
+        <p>Explore different topics</p>
+    </div>
+    <div class="feature-card">
+        <h3>About</h3>
+        <p>Learn more about us</p>
+    </div>
+</div>
+{% endblock %}
