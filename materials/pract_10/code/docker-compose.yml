@@ -1,0 +1,81 @@
+version: '3.8'
+
+services:
+  # Backend application
+  app:
+    build: .
+    container_name: webapp
+    ports:
+      - "8000:8000"
+    environment:
+      - DATABASE_URL=postgresql://user:password@db:5432/webapp
+      - REDIS_URL=redis://redis:6379
+    depends_on:
+      - db
+      - redis
+    networks:
+      - app-network
+
+  # Second instance for load balancing
+  app2:
+    build: .
+    container_name: webapp2
+    ports:
+      - "8001:8000"
+    environment:
+      - DATABASE_URL=postgresql://user:password@db:5432/webapp
+      - REDIS_URL=redis://redis:6379
+    depends_on:
+      - db
+      - redis
+    networks:
+      - app-network
+
+  # Nginx reverse proxy
+  nginx:
+    image: nginx:alpine
+    container_name: nginx
+    ports:
+      - "80:80"
+      - "443:443"
+    volumes:
+      - ./nginx.conf:/etc/nginx/nginx.conf:ro
+      - ./static:/var/www/static:ro
+      - ./ssl:/etc/nginx/ssl:ro
+    depends_on:
+      - app
+      - app2
+    networks:
+      - app-network
+    restart: unless-stopped
+
+  # PostgreSQL database
+  db:
+    image: postgres:15-alpine
+    container_name: postgres
+    environment:
+      POSTGRES_USER: user
+      POSTGRES_PASSWORD: password
+      POSTGRES_DB: webapp
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    networks:
+      - app-network
+
+  # Redis cache
+  redis:
+    image: redis:alpine
+    container_name: redis
+    command: redis-server --appendonly yes
+    volumes:
+      - redis_data:/data
+    networks:
+      - app-network
+
+networks:
+  app-network:
+    driver: bridge
+
+volumes:
+  postgres_data:
+  redis_data:

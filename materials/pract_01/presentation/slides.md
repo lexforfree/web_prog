@@ -2,15 +2,20 @@
 marp: true
 theme: default
 paginate: true
+size: 16:9
 style: |
   section {
     font-family: 'Segoe UI', sans-serif;
-    font-size: 24px;
+    font-size: 20px;
+    line-height: 1.4;
+    padding-top: 20px;
   }
   h1 {
+    font-size: 36px;
     color: #2c3e50;
   }
   h2 {
+    font-size: 28px;
     color: #3498db;
   }
   code {
@@ -22,6 +27,7 @@ style: |
     background-color: #f4f4f4;
     padding: 16px;
     border-radius: 8px;
+    font-size: 16px;
   }
   table {
     border-collapse: collapse;
@@ -35,6 +41,17 @@ style: |
   th {
     background-color: #3498db;
     color: white;
+  }
+  .columns {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 20px;
+  }
+  .columns > * {
+    grid-column: 1;
+  }
+  .columns > *:nth-child(2n) {
+    grid-column: 2;
   }
 ---
 
