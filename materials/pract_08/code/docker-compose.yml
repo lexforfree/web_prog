@@ -1,0 +1,40 @@
+version: '3.8'
+
+services:
+  postgres:
+    image: postgres:15-alpine
+    container_name: webprog_db
+    environment:
+      POSTGRES_USER: webprog
+      POSTGRES_PASSWORD: webprog123
+      POSTGRES_DB: webprog
+      POSTGRES_MAX_CONNECTIONS: 100
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+      - ./migrations:/docker-entrypoint-initdb.d
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U webprog"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  app:
+    build: .
+    container_name: webprog_app
+    environment:
+      DATABASE_URL: postgresql://webprog:webprog123@postgres:5432/webprog
+      DB_HOST: postgres
+      DB_PORT: 5432
+      DB_NAME: webprog
+      DB_USER: webprog
+      DB_PASSWORD: webprog123
+    depends_on:
+      postgres:
+        condition: service_healthy
+    ports:
+      - "8000:8000"
+
+volumes:
+  postgres_data:

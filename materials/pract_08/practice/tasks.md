@@ -3,48 +3,92 @@
 
 ---
 
+### Подготовка окружения с Docker
+
+**Запуск PostgreSQL в Docker:**
+
+```bash
+cd materials/pract_08/code
+docker-compose up -d
+```
+
+**Проверка подключения:**
+
+```bash
+# Проверка статуса
+docker ps | grep webprog_db
+
+# Подключение к БД
+docker exec -it webprog_db psql -U webprog -d webprog
+
+# Тест запрос
+docker exec -it webprog_db psql -U webprog -d webprog -c "SELECT 1;"
+```
+
+**Остановка:**
+
+```bash
+docker-compose down
+docker-compose down -v  # Удалить данные
+```
+
+---
+
 ### Задание 1: Подключение к БД
 
-**Создайте подключение к PostgreSQL или MySQL:**
+**Создайте подключение к PostgreSQL в Docker:**
 
 **Требования:**
-- Использовать драйвер (psycopg2 или mysql-connector)
+- Использовать драйвер psycopg2
 - Параметры подключения из переменных окружения
 - Обработка ошибок подключения
 - Context manager для автоматического закрытия
 
-**Пример:**
+**Пример .env:**
+```bash
+DB_HOST=localhost
+DB_PORT=5432
+DB_NAME=webprog
+DB_USER=webprog
+DB_PASSWORD=webprog123
+```
+
+**Пример кода:**
 ```python
 import os
 import psycopg2
+from dotenv import load_dotenv
+
+load_dotenv()
 
 def get_connection():
     return psycopg2.connect(
         host=os.getenv('DB_HOST', 'localhost'),
         port=int(os.getenv('DB_PORT', 5432)),
-        database=os.getenv('DB_NAME', 'mydb'),
-        user=os.getenv('DB_USER', 'postgres'),
-        password=os.getenv('DB_PASSWORD', 'password')
+        database=os.getenv('DB_NAME', 'webprog'),
+        user=os.getenv('DB_USER', 'webprog'),
+        password=os.getenv('DB_PASSWORD', 'webprog123')
     )
 ```
 
-**Проверка:**
-- Успешное подключение
-- Обработка ошибки при неверных параметрах
-- Корректное закрытие подключения
+**Проверка через Docker:**
+```bash
+# Успешное подключение
+python your_script.py
+
+# Проверка через CLI
+docker exec -it webprog_db psql -U webprog -d webprog -c "\dt"
+```
 
 ---
 
 ### Задание 2: Создание таблицы
 
-**Создайте таблицу users:**
+**Создайте таблицу users через Docker CLI:**
 
-**Требования:**
-- id (SERIAL/AUTO_INCREMENT, PRIMARY KEY)
-- name (VARCHAR(50), NOT NULL)
-- email (VARCHAR(100), UNIQUE, NOT NULL)
-- age (INTEGER, CHECK age >= 18)
-- created_at (TIMESTAMP, DEFAULT NOW())
+```bash
+docker exec -it webprog_db psql -U webprog -d webprog
+```
 
 **SQL запрос:**
 ```sql
@@ -57,9 +101,10 @@ CREATE TABLE users (
 );
 ```
 
-**Проверка:**
-- Таблица создана
+**Требования:**
+- Таблица создана в Docker контейнере
 - Ограничения работают (UNIQUE, CHECK, NOT NULL)
+- Проверить через `\d users`
 
 ---
 
@@ -79,6 +124,18 @@ CREATE TABLE users (
 - Возврат количества затронутых строк
 - Обработка ошибок (дубликат email, пользователь не найден)
 - Использование транзакций
+
+**Проверка через Docker:**
+```bash
+# После INSERT
+docker exec -it webprog_db psql -U webprog -d webprog -c "SELECT * FROM users;"
+
+# После UPDATE
+docker exec -it webprog_db psql -U webprog -d webprog -c "SELECT * FROM users WHERE id = 1;"
+
+# После DELETE
+docker exec -it webprog_db psql -U webprog -d webprog -c "SELECT * FROM users;"
+```
 
 ---
 
@@ -109,12 +166,14 @@ def search_user_safe(email):
 
 ### Задание 5: JOIN операции
 
-**Создайте таблицу orders:**
+**Создайте таблицу orders через Docker:**
 
-```sql
+```bash
+docker exec -it webprog_db psql -U webprog -d webprog
+
 CREATE TABLE orders (
     id SERIAL PRIMARY KEY,
-    user_id INTEGER REFERENCES users(id),
+    user_id INTEGER REFERENCES users(id) ON DELETE CASCADE,
     product VARCHAR(100),
     total DECIMAL(10, 2),
     created_at TIMESTAMP DEFAULT NOW()
@@ -127,38 +186,41 @@ CREATE TABLE orders (
 3. Подсчёт заказов на пользователя
 4. Сумма заказов на пользователя
 
-**Пример:**
-```sql
-SELECT u.name, COUNT(o.id) as order_count
-FROM users u
-LEFT JOIN orders o ON u.id = o.user_id
-GROUP BY u.id, u.name;
+**Проверка через Docker:**
+```bash
+docker exec -it webprog_db psql -U webprog -d webprog -c \
+  "SELECT u.name, COUNT(o.id) FROM users u LEFT JOIN orders o ON u.id = o.user_id GROUP BY u.name;"
 ```
 
 ---
 
-### Задание 6: Миграции
+### Задание 6: Миграции с Docker
 
 **Создайте систему миграций:**
 
-**Миграции:**
-1. migration_001_create_users.sql
-2. migration_002_create_orders.sql
-3. migration_003_add_phone_to_users.sql
-
-**Скрипт для применения мигнаций:**
-```python
-def apply_migration(migration_file):
-    with open(migration_file) as f:
-        sql = f.read()
-    cursor.execute(sql)
-    conn.commit()
+**docker-compose.yml с init script:**
+```yaml
+services:
+  postgres:
+    volumes:
+      - ./migrations:/docker-entrypoint-initdb.d
 ```
 
-**Требования:**
-- Отслеживание применённых миграций
-- Возможность отката
-- Логирование применённых миграций
+**Миграции:**
+1. `migrations/001_create_users.sql`
+2. `migrations/002_create_orders.sql`
+
+**Задания:**
+1. Создайте файлы миграций
+2. Удалите контейнер и volume
+3. Запустите заново - миграции применятся автоматически
+4. Проверьте результат
+
+```bash
+docker-compose down -v
+docker-compose up -d
+docker exec -it webprog_db psql -U webprog -d webprog -c "\dt"
+```
 
 ---
 
@@ -170,6 +232,9 @@ def apply_migration(migration_file):
 ```python
 from sqlalchemy import create_engine, Column, Integer, String
 from sqlalchemy.orm import declarative_base, sessionmaker
+import os
+
+DATABASE_URL = f"postgresql://{os.getenv('DB_USER')}:{os.getenv('DB_PASSWORD')}@{os.getenv('DB_HOST')}:{os.getenv('DB_PORT')}/{os.getenv('DB_NAME')}"
 
 Base = declarative_base()
 
@@ -194,23 +259,27 @@ class User(Base):
 
 **Настройте connection pool:**
 
-**Требования:**
-- Использовать SQLAlchemy с QueuePool
-- Настроить pool_size и max_overflow
-- Протестировать производительность с пулом и без
-
-**Сравнение:**
 ```python
-# Без пула
-engine = create_engine('postgresql://...')
+from sqlalchemy.pool import QueuePool
 
-# С пулом
 engine = create_engine(
-    'postgresql://...',
+    DATABASE_URL,
     poolclass=QueuePool,
     pool_size=5,
     max_overflow=10
 )
+```
+
+**Сравнение:**
+- Без пула
+- С пулом
+- Измерить производительность
+
+**Проверка в Docker:**
+```bash
+# Количество подключений
+docker exec -it webprog_db psql -U webprog -d webprog -c \
+  "SELECT count(*) FROM pg_stat_activity;"
 ```
 
 ---
@@ -220,7 +289,7 @@ engine = create_engine(
 **Реализуйте асинхронный доступ к БД:**
 
 **Требования:**
-- Использовать asyncpg (PostgreSQL) или aiomysql
+- Использовать asyncpg
 - Асинхронные функции для CRUD
 - Обработка ошибок
 
@@ -242,7 +311,32 @@ async def get_user(user_id):
 
 ### Задание 10: Практическая реализация
 
-**Создайте полноценный API с БД:**
+**Создайте полноценный API с БД в Docker:**
+
+**docker-compose.yml:**
+```yaml
+services:
+  postgres:
+    image: postgres:15-alpine
+    environment:
+      POSTGRES_USER: webprog
+      POSTGRES_PASSWORD: webprog123
+      POSTGRES_DB: webprog
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+
+  app:
+    build: .
+    environment:
+      DATABASE_URL: postgresql://webprog:webprog123@postgres:5432/webprog
+    depends_on:
+      - postgres
+
+volumes:
+  postgres_data:
+```
 
 **Endpoints:**
 - POST /users - создать пользователя
@@ -253,7 +347,7 @@ async def get_user(user_id):
 - GET /users/{id}/orders - заказы пользователя
 
 **Требования:**
-- Использовать драйвер БД (psycopg2 или mysql-connector)
+- Использовать драйвер БД (psycopg2)
 - Параметризованные запросы
 - Обработка ошибок (404, 400, 409)
 - Connection pooling
@@ -263,8 +357,8 @@ async def get_user(user_id):
 
 ### Критерии оценки
 
-- **Отлично (5):** Все задания выполнены, есть подробные комментарии, реализованы все механизмы защиты
-- **Хорошо (4):** Основные задания выполнены, CRUD работает, есть защита от SQL injection
+- **Отлично (5):** Все задания выполнены с Docker, есть docker-compose.yml, миграции применяются автоматически
+- **Хорошо (4):** Основные задания выполнены, CRUD работает с Docker
 - **Удовлетворительно (3):** Базовые CRUD операции реализованы
 - **Неудовлетворительно (2):** Задание не выполнено или не работает
 
@@ -273,10 +367,11 @@ async def get_user(user_id):
 ### Сдача работы
 
 1. Создайте Git-репозиторий с кодом
-2. Добавьте SQL скрипты для создания таблиц
-3. Добавьте requirements.txt с зависимостями
-4. Добавьте README с инструкциями по запуску
-5. Пришлите ссылку на репозиторий
+2. Добавьте docker-compose.yml
+3. Добавьте SQL скрипты для создания таблиц
+4. Добавьте requirements.txt с зависимостями
+5. Добавьте README с инструкциями по запуску Docker
+6. Пришлите ссылку на репозиторий
 
 ---
 

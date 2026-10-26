@@ -523,46 +523,87 @@ session.commit()
 
 ---
 
-### Слайд 16: Connection Pooling
+### Слайд 16: Разбор примера db_operations.py
 
-**Что такое connection pool?**
+**Структура примера:**
 
-Пул подключений - кэш открытых подключений к БД.
-
-**Зачем нужен:**
-- Создание подключения - дорого
-- Переиспользование подключений
-- Ограничение количества подключений
-
-**Пример с SQLAlchemy:**
 ```python
-from sqlalchemy.pool import QueuePool
-
-engine = create_engine(
-    'postgresql://...',
-    poolclass=QueuePool,
-    pool_size=5,
-    max_overflow=10
-)
+class Database:
+    def __init__(self):
+        # Connection Pool - кэш подключений
+        self.connection_pool = psycopg2.pool.SimpleConnectionPool(
+            minconn=1, maxconn=10, ...
+        )
+    
+    @contextmanager
+    def get_connection(self):
+        # Автоматическое возврат подключения в пул
+        conn = self.connection_pool.getconn()
+        try:
+            yield conn
+        finally:
+            self.connection_pool.putconn(conn)
 ```
 
-**Без пула:**
-```
-Request 1: Create connection → Query → Close
-Request 2: Create connection → Query → Close
-# Медленно!
-```
+**Поток выполнения:**
+1. Приложение запрашивает подключение из пула
+2. Если есть свободное - выдаётся, если нет - создаётся новое
+3. После использования - возвращается в пул
+4. Максимальное подключений - 10 (maxconn)
 
-**С пулом:**
-```
-Request 1: Get from pool → Query → Return to pool
-Request 2: Get from pool → Query → Return to pool
-# Быстро!
+**Преимущества:**
+- Нет задержки на создание подключения
+- Контроль количества подключений к БД
+- Автоматическое управление ресурсами
+
+**Запуск в Docker:**
+```bash
+docker-compose up -d
+# Контейнер webprog_app подключается к webprog_db
+# Использует connection pool для оптимизации
 ```
 
 ---
 
-### Слайд 17: Асинхронный доступ к БД
+### Слайд 17: Разбор примера concurrency_consistency.py
+
+**Race Condition - что происходит:**
+
+```python
+# Поток 1: читает balance = 1000
+# Поток 2: читает balance = 1000 (одновременно)
+# Поток 1: balance = 1000 - 100 = 900
+# Поток 2: balance = 1000 - 100 = 900
+# Результат: баланс = 900 (должен быть 800!)
+```
+
+**Pessimistic Locking - решение:**
+
+```python
+SELECT balance FROM accounts WHERE id = 1 FOR UPDATE
+# Строка блокируется до конца транзакции
+# Поток 2 ждёт, пока поток 1 не завершит
+```
+
+**Оптимистическая блокировка - решение:**
+
+```python
+UPDATE accounts SET balance = 900, version = 2
+WHERE id = 1 AND version = 1
+# Если rowcount = 0 - кто-то изменил версию
+# Повторить попытку с новой версией
+```
+
+**Запуск в Docker:**
+```bash
+docker-compose up -d
+# Автоматически запускает все примеры конкурентности
+# Сравнивает результаты разных подходов
+```
+
+---
+
+### Слайд 18: Асинхронный доступ к БД с Docker
 
 **Синхронный vs Асинхронный:**
 
@@ -584,6 +625,33 @@ async def get_user(user_id):
 # Не блокирует
 ```
 
+**docker-compose.yml для asyncpg:**
+```yaml
+version: '3.8'
+
+services:
+  postgres:
+    image: postgres:15-alpine
+    environment:
+      POSTGRES_USER: webprog
+      POSTGRES_PASSWORD: webprog123
+      POSTGRES_DB: webprog
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+
+  async_app:
+    build: .
+    environment:
+      DATABASE_URL: postgresql://webprog:webprog123@postgres:5432/webprog
+    depends_on:
+      - postgres
+
+volumes:
+  postgres_data:
+```
+
 **Когда использовать асинхронный:**
 - Высокая нагрузка
 - Много одновременных запросов
@@ -591,44 +659,128 @@ async def get_user(user_id):
 
 ---
 
-### Слайд 18: Пример с asyncpg
+### Слайд 19: Конкурентность и консистентность
 
+**Проблемы конкурентного доступа:**
+
+**Race Condition (Гонка данных):**
 ```python
-import asyncpg
-import asyncio
+# Два потока читают баланс одновременно
+balance = get_balance(account_id)
+# Симуляция задержки
+time.sleep(0.1)
+# Обновляют одно и то же значение
+update_balance(account_id, balance - amount)
+# Результат: потеря обновлений
+```
 
-async def main():
-    # Подключение
-    conn = await asyncpg.connect(
-        host='localhost',
-        port=5432,
-        database='mydb',
-        user='postgres',
-        password='password'
-    )
-    
-    # INSERT
-    await conn.execute(
-        "INSERT INTO users (name, email) VALUES ($1, $2)",
-        "John", "john@example.com"
-    )
-    
-    # SELECT
-    user = await conn.fetchrow(
-        "SELECT * FROM users WHERE id = $1",
-        1
-    )
-    print(user)
-    
-    # Закрытие
-    await conn.close()
+**Pessimistic Locking (Пессимистическая блокировка):**
+```python
+# SELECT FOR UPDATE блокирует строку
+cursor.execute(
+    "SELECT balance FROM accounts WHERE id = %s FOR UPDATE",
+    (account_id,)
+)
+balance = cursor.fetchone()[0]
+# Другие транзакции ждут освобождения блокировки
+```
 
-asyncio.run(main())
+**Optimistic Locking (Оптимистическая блокировка):**
+```python
+# Использует version column
+cursor.execute("""
+    UPDATE accounts 
+    SET balance = %s, version = version + 1
+    WHERE id = %s AND version = %s
+""", (new_balance, account_id, current_version))
+# Если rowcount == 0 - версия изменилась, повторить
 ```
 
 ---
 
-### Слайд 19: Практическое задание
+### Слайд 19: Upsert и Savepoints
+
+**Upsert (INSERT ... ON CONFLICT):**
+
+```python
+cursor.execute("""
+    INSERT INTO products (sku, name, quantity)
+    VALUES (%s, %s, %s)
+    ON CONFLICT (sku) DO UPDATE SET
+        name = EXCLUDED.name,
+        quantity = EXCLUDED.quantity
+""", (sku, name, quantity))
+```
+
+**Savepoints (частичный откат):**
+
+```python
+cursor.execute("INSERT INTO transactions ...")
+cursor.execute("SAVEPOINT my_savepoint")
+
+cursor.execute("INSERT INTO transactions ...")
+
+# Откат к savepoint, но не всей транзакции
+cursor.execute("ROLLBACK TO SAVEPOINT my_savepoint")
+
+cursor.execute("INSERT INTO transactions ...")
+cursor.connection.commit()
+```
+
+---
+
+### Слайд 20: Уровни изоляции транзакций
+
+**Уровни изоляции в PostgreSQL:**
+
+| Уровень | Описание | Грязное чтение | Неповторяемое чтение | Фантомное чтение |
+|---------|----------|---------------|---------------------|------------------|
+| READ COMMITTED | По умолчанию | Нет | Да | Да |
+| REPEATABLE READ | Снимок данных | Нет | Нет | Да |
+| SERIALIZABLE | Полная изоляция | Нет | Нет | Нет |
+
+**Установка уровня:**
+```python
+cursor.execute("SET TRANSACTION ISOLATION LEVEL REPEATABLE READ")
+```
+
+**Когда использовать:**
+- READ COMMITTED - большинство случаев
+- REPEATABLE READ - отчёты, аналитика
+- SERIALIZABLE - критические финансовые операции
+
+---
+
+### Слайд 22: Batch Insert
+
+**Одиночная вставка (медленно):**
+```python
+for item in items:
+    cursor.execute("INSERT INTO table VALUES (%s)", (item,))
+# 100 запросов к БД
+```
+
+**Batch insert (быстро):**
+```python
+data = [(item1,), (item2,), ...]
+cursor.executemany("INSERT INTO table VALUES (%s)", data)
+# 1 запрос к БД
+```
+
+**Производительность:**
+- Batch insert обычно в 10-100x быстрее
+- Меньше сетевых задержек
+- Меньше overhead на транзакции
+
+**Проверка через Docker:**
+```bash
+# Сравнение времени выполнения
+time python code/concurrency_consistency.py
+```
+
+---
+
+### Слайд 23: Практическое задание
 
 **Задание 1: Подключение к БД**
 - Создать подключение к PostgreSQL/MySQL
@@ -658,7 +810,7 @@ asyncio.run(main())
 
 ---
 
-### Слайд 20: Вопрос для собеседования
+### Слайд 24: Вопрос для собеседования
 
 **Вопрос:** Объясните безопасную запись и чтение данных из БД.
 

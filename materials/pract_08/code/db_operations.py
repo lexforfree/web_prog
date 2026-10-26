@@ -1,8 +1,13 @@
 """
-Database Operations Example
+Database Operations Example with Docker
 Занятие 8: Работа с базой данных
 
 Для запуска требуется: pip install psycopg2-binary python-dotenv
+
+Запуск с Docker:
+1. docker-compose up -d
+2. docker exec -it webprog_db psql -U webprog -d webprog
+3. python code/db_operations.py
 """
 
 import os
@@ -19,14 +24,15 @@ class Database:
     """Database connection manager with pooling"""
     
     def __init__(self):
+        # Подключение к Docker контейнеру
         self.connection_pool = psycopg2.pool.SimpleConnectionPool(
             minconn=1,
             maxconn=10,
             host=os.getenv('DB_HOST', 'localhost'),
             port=int(os.getenv('DB_PORT', 5432)),
             database=os.getenv('DB_NAME', 'webprog'),
-            user=os.getenv('DB_USER', 'postgres'),
-            password=os.getenv('DB_PASSWORD', 'password')
+            user=os.getenv('DB_USER', 'webprog'),
+            password=os.getenv('DB_PASSWORD', 'webprog123')
         )
     
     @contextmanager
@@ -90,7 +96,7 @@ def create_tables():
 
 
 def create_user(name: str, email: str, age: int) -> dict:
-    """Create a new user"""
+    """Create user with duplicate check"""
     with db.get_cursor() as cursor:
         try:
             cursor.execute(
@@ -98,7 +104,7 @@ def create_user(name: str, email: str, age: int) -> dict:
                 (name, email, age)
             )
             result = cursor.fetchone()
-            print(f"User created: {result}")
+            
             return {
                 'id': result[0],
                 'name': result[1],
@@ -107,8 +113,25 @@ def create_user(name: str, email: str, age: int) -> dict:
                 'created_at': result[4]
             }
         except psycopg2.IntegrityError as e:
-            print(f"Error creating user: {e}")
-            raise ValueError("Email already exists")
+            if "duplicate key" in str(e):
+                print(f"Error: Email {email} already exists, skipping...")
+                # Rollback the failed transaction
+                cursor.connection.rollback()
+                # Try to get existing user
+                cursor.execute(
+                    "SELECT id, name, email, age, created_at FROM users WHERE email = %s",
+                    (email,)
+                )
+                result = cursor.fetchone()
+                if result:
+                    return {
+                        'id': result[0],
+                        'name': result[1],
+                        'email': result[2],
+                        'age': result[3],
+                        'created_at': result[4]
+                    }
+            raise
 
 
 def get_user(user_id: int) -> dict:

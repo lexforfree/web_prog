@@ -1,8 +1,12 @@
 """
-Async Database Access Example
+Async Database Access Example with Docker
 Занятие 8: Работа с базой данных
 
 Для запуска требуется: pip install asyncpg python-dotenv
+
+Запуск с Docker:
+1. docker-compose up -d
+2. python code/async_db.py
 """
 
 import os
@@ -19,13 +23,13 @@ class AsyncDatabase:
         self.pool = None
     
     async def init_pool(self):
-        """Initialize connection pool"""
+        """Initialize connection pool - подключение к Docker контейнеру"""
         self.pool = await asyncpg.create_pool(
             host=os.getenv('DB_HOST', 'localhost'),
             port=int(os.getenv('DB_PORT', 5432)),
             database=os.getenv('DB_NAME', 'webprog'),
-            user=os.getenv('DB_USER', 'postgres'),
-            password=os.getenv('DB_PASSWORD', 'password'),
+            user=os.getenv('DB_USER', 'webprog'),
+            password=os.getenv('DB_PASSWORD', 'webprog123'),
             min_size=1,
             max_size=10
         )

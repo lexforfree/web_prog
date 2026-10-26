@@ -1,8 +1,12 @@
 """
-SQLAlchemy ORM Example
+SQLAlchemy ORM Example with Docker
 Занятие 8: Работа с базой данных
 
 Для запуска требуется: pip install sqlalchemy python-dotenv
+
+Запуск с Docker:
+1. docker-compose up -d
+2. python code/sqlalchemy_orm.py
 """
 
 import os
@@ -13,8 +17,8 @@ from dotenv import load_dotenv
 
 load_dotenv()
 
-# Database URL
-DATABASE_URL = f"postgresql://{os.getenv('DB_USER', 'postgres')}:{os.getenv('DB_PASSWORD', 'password')}@{os.getenv('DB_HOST', 'localhost')}:{os.getenv('DB_PORT', 5432)}/{os.getenv('DB_NAME', 'webprog')}"
+# Database URL - подключение к Docker контейнеру
+DATABASE_URL = f"postgresql://{os.getenv('DB_USER', 'webprog')}:{os.getenv('DB_PASSWORD', 'webprog123')}@{os.getenv('DB_HOST', 'localhost')}:{os.getenv('DB_PORT', 5432)}/{os.getenv('DB_NAME', 'webprog')}"
 
 # Create engine with connection pool
 engine = create_engine(
