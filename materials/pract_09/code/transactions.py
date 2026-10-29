@@ -1,8 +1,12 @@
 """
-Transaction Examples
+Transaction Examples with Docker
 Занятие 9: Транзакции и индексы
 
 Для запуска требуется: pip install psycopg2-binary python-dotenv
+
+Запуск с Docker:
+1. docker-compose up -d
+2. python code/transactions.py
 """
 
 import os
@@ -20,14 +24,15 @@ class Database:
     """Database connection manager"""
     
     def __init__(self):
+        # Подключение к Docker контейнеру
         self.connection_pool = psycopg2.pool.SimpleConnectionPool(
             minconn=1,
             maxconn=10,
             host=os.getenv('DB_HOST', 'localhost'),
             port=int(os.getenv('DB_PORT', 5432)),
             database=os.getenv('DB_NAME', 'webprog'),
-            user=os.getenv('DB_USER', 'postgres'),
-            password=os.getenv('DB_PASSWORD', 'password')
+            user=os.getenv('DB_USER', 'webprog'),
+            password=os.getenv('DB_PASSWORD', 'webprog123')
         )
     
     @contextmanager

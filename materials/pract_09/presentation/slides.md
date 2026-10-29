@@ -140,6 +140,12 @@ finally:
 - `rollback()` отменяет изменения
 - Без `commit()` изменения не сохранятся
 
+**Запуск с Docker:**
+```bash
+docker-compose up -d
+python code/transactions.py
+```
+
 ---
 
 ### Слайд 4: Атомарность - зачем нужна?
@@ -171,7 +177,46 @@ except:
 
 ---
 
-### Слайд 5: Гонка данных (Race Condition)
+### Слайд 5: Docker для транзакций
+
+**docker-compose.yml:**
+
+```yaml
+version: '3.8'
+
+services:
+  postgres:
+    image: postgres:15-alpine
+    environment:
+      POSTGRES_USER: webprog
+      POSTGRES_PASSWORD: webprog123
+      POSTGRES_DB: webprog
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+
+  app:
+    build: .
+    environment:
+      DATABASE_URL: postgresql://webprog:webprog123@postgres:5432/webprog
+    depends_on:
+      - postgres
+
+volumes:
+  postgres_data:
+```
+
+**Запуск примеров:**
+```bash
+docker-compose up -d
+python code/transactions.py
+python code/advanced_transactions.py
+```
+
+---
+
+### Слайд 6: Гонка данных (Race Condition)
 
 **Что такое гонка?**
 
@@ -352,227 +397,270 @@ DROP INDEX idx_users_email;
 
 **Когда создавать индексы:**
 - Частые WHERE условия
-- JOIN условия
-- ORDER BY
-- Частые уникальные проверки
+- Частые JOIN по колонке
+- ORDER BY по колонке
 
----
-
-### Слайд 12: Влияние индексов на производительность
-
-**Чтение:**
-- ✅ Быстрее (в 10-1000 раз)
-- ✅ Меньше чтения с диска
-
-**Запись:**
-- ❌ Медленнее (индекс нужно обновлять)
-- ❌ Больше места на диске
-
-**Баланс:**
-```sql
--- Хорошо: часто читаем, редко пишем
-CREATE INDEX idx_users_email ON users(email);
-
--- Плохо: часто пишем, редко читаем
-CREATE INDEX idx_logs_timestamp ON logs(timestamp);
+**Запуск с Docker:**
+```bash
+docker-compose up -d
+python code/indexes.py
 ```
 
 ---
 
-### Слайд 13: EXPLAIN - анализ запросов
+### Слайд 12: EXPLAIN ANALYZE
 
-**Проверка использования индекса:**
+**Анализ плана выполнения:**
 
 ```sql
-EXPLAIN SELECT * FROM users WHERE email = 'john@example.com';
+EXPLAIN ANALYZE SELECT * FROM users WHERE email = 'john@example.com';
 ```
 
-**Результат без индекса:**
+**Результат:**
 ```
-Seq Scan on users  (cost=0.00..100.00 rows=1 width=100)
+Index Scan using idx_users_email on users  (cost=0.29..8.31 rows=1 width=32)
+  Index Cond: (email = 'john@example.com'::text)
+  Planning Time: 0.123 ms
+  Execution Time: 0.456 ms
 ```
-- Seq Scan = последовательное сканирование (медленно)
 
-**Результат с индексом:**
+**Ключевые метрики:**
+- `Seq Scan` - полное сканирование (плохо)
+- `Index Scan` - поиск по индексу (хорошо)
+- `cost` - оценка стоимости
+- `rows` - оценочное количество строк
+- `Execution Time` - реальное время
+
+**Проверка через Docker:**
+```bash
+docker exec -it webprog_transactions_db psql -U webprog -d webprog
+EXPLAIN ANALYZE SELECT * FROM users WHERE email = 'user@example.com';
 ```
-Index Scan using idx_users_email on users  (cost=0.00..5.00 rows=1 width=100)
-```
-- Index Scan = поиск по индексу (быстро)
 
 ---
 
-### Слайд 14: Проблема N+1
+### Слайд 13: Deadlock Detection
 
-**Что такое N+1?**
+**Что такое deadlock?**
 
-N запросов для получения связанных данных вместо 1.
+Взаимная блокировка - две транзакции ждут друг друга.
 
 **Пример:**
-
-```python
-# Получить пользователей
-users = session.query(User).all()  # 1 запрос
-
-# Для каждого пользователя получить заказы
-for user in users:
-    orders = session.query(Order).filter_by(user_id=user.id).all()  # N запросов
-    user.orders = orders
-
-# Итого: 1 + N запросов
+```
+Thread 1: Locks Alice, waits for Bob
+Thread 2: Locks Bob, waits for Alice
 ```
 
-**Проблема:**
-- 100 пользователей = 101 запрос
-- Медленно!
-
----
-
-### Слайд 15: Решение N+1 - JOIN
-
-**Использование JOIN:**
+**PostgreSQL автоматически обнаруживает и прерывает одну транзакцию:**
 
 ```python
-# Один запрос с JOIN
-results = session.query(User, Order).join(Order).all()
-
-users = {}
-for user, order in results:
-    if user.id not in users:
-        users[user.id] = {'user': user, 'orders': []}
-    users[user.id]['orders'].append(order)
-
-# Итого: 1 запрос
+try:
+    cursor.execute("SELECT balance FROM accounts WHERE id = 1 FOR UPDATE")
+    time.sleep(0.5)
+    cursor.execute("SELECT balance FROM accounts WHERE id = 2 FOR UPDATE")
+except psycopg2.extensions.Deadlock:
+    print("Deadlock detected! Rolling back...")
+    conn.rollback()
 ```
 
-**SQLAlchemy eager loading:**
-
-```python
-# subqueryload
-users = session.query(User).options(subqueryload(User.orders)).all()
-
-# joinedload
-users = session.query(User).options(joinedload(User.orders)).all()
+**Запуск примера:**
+```bash
+python code/advanced_transactions.py
 ```
 
 ---
 
-### Слайд 16: Решение N+1 - IN
+### Слайд 14: Savepoints
 
-**Использование IN:**
+**Частичный откат внутри транзакции:**
 
 ```python
-# Получить пользователей
-users = session.query(User).all()  # 1 запрос
+cursor.execute("INSERT INTO transactions ...")
+cursor.execute("SAVEPOINT sp1")
 
-# Получить ID пользователей
-user_ids = [u.id for u in users]
+cursor.execute("INSERT INTO transactions ...")
 
-# Получить все заказы одним запросом
-orders = session.query(Order).filter(Order.user_id.in_(user_ids)).all()  # 1 запрос
+# Откат к savepoint, но не всей транзакции
+cursor.execute("ROLLBACK TO SAVEPOINT sp1")
 
-# Сгруппировать
-orders_by_user = {}
-for order in orders:
-    if order.user_id not in orders_by_user:
-        orders_by_user[order.user_id] = []
-    orders_by_user[order.user_id].append(order)
+# Продолжение транзакции
+cursor.execute("INSERT INTO transactions ...")
+conn.commit()
+```
 
-# Итого: 2 запроса
+**Когда использовать:**
+- Сложные многошаговые операции
+- Возможность частичного отката
+- Не нужно начинать транзакцию заново
+
+**Запуск примера:**
+```bash
+python code/advanced_transactions.py
 ```
 
 ---
 
-### Слайд 17: Составные индексы
+### Слайд 15: Partial Indexes
 
-**Правило левого префикса:**
-
-```sql
-CREATE INDEX idx_users_name_age ON users(name, age);
-```
-
-**Используется:**
-```sql
-WHERE name = 'John'              ✅
-WHERE name = 'John' AND age = 30 ✅
-WHERE age = 30                   ❌
-```
-
-**Почему age не используется?**
-- Индекс упорядочен по name, затем age
-- Поиск только по age требует полного сканирования
-
-**Решение:**
-```sql
-CREATE INDEX idx_users_age ON users(age);
-CREATE INDEX idx_users_name_age ON users(name, age);
-```
-
----
-
-### Слайд 18: Частичный индекс
-
-**Индекс для подмножества данных:**
+**Индекс только для части данных:**
 
 ```sql
--- Индекс только для активных пользователей
-CREATE INDEX idx_users_active ON users(email) WHERE active = true;
+CREATE INDEX idx_users_active 
+ON users (email) 
+WHERE status = 'active';
 ```
 
 **Преимущества:**
-- Меньше места
+- Меньший размер индекса
 - Быстрее обновление
-- Полезен если часто фильтруем по active = true
+- Используется только для активных пользователей
+
+**Когда использовать:**
+- Часто фильтруете по условию
+- Большая часть данных не нужна в индексе
+- Пример: только активные пользователи, только неархивированные записи
+
+**Запуск примера:**
+```bash
+python code/advanced_indexes.py
+```
+
+---
+
+### Слайд 16: Functional Indexes
+
+**Индекс на выражении:**
+
+```sql
+CREATE INDEX idx_users_email_lower 
+ON users (LOWER(email));
+```
+
+**Преимущества:**
+- Ускоряет поиск без учёта регистра
+- Индекс на UPPER(name), COALESCE(field, default)
+- Полезно для case-insensitive поиска
 
 **Пример:**
 ```sql
--- Использует индекс
-SELECT * FROM users WHERE active = true AND email = 'john@example.com';
+-- Без индекса: полное сканирование
+SELECT * FROM users WHERE LOWER(email) = 'john@example.com';
 
--- Не использует индекс
-SELECT * FROM users WHERE active = false AND email = 'john@example.com';
+-- С индексом: быстрый поиск
+SELECT * FROM users WHERE LOWER(email) = 'john@example.com';
+```
+
+**Запуск примера:**
+```bash
+python code/advanced_indexes.py
+```
+
+---
+
+### Слайд 17: Transaction Monitoring
+
+**Мониторинг активных транзакций:**
+
+```sql
+-- Активные транзакции
+SELECT pid, state, query, now() - query_start as duration
+FROM pg_stat_activity
+WHERE state = 'active'
+ORDER BY duration DESC;
+
+-- Блокировки
+SELECT locktype, relation::regclass, mode
+FROM pg_locks
+WHERE pid != pg_backend_pid();
+```
+
+**Проверка через Docker:**
+```bash
+docker exec -it webprog_transactions_db psql -U webprog -d webprog
+SELECT pid, state, query FROM pg_stat_activity WHERE state = 'active';
+```
+
+**Запуск примера:**
+```bash
+python code/advanced_transactions.py
+```
+
+---
+
+### Слайд 18: Index Monitoring
+
+**Статистика использования индексов:**
+
+```sql
+-- Использование индексов
+SELECT indexname, idx_scan, idx_tup_read
+FROM pg_stat_user_indexes
+ORDER BY idx_scan DESC;
+
+-- Размер индексов
+SELECT indexname, pg_size_pretty(pg_relation_size(indexrelid))
+FROM pg_stat_user_indexes
+ORDER BY pg_relation_size(indexrelid) DESC;
+```
+
+**Неиспользуемые индексы:**
+```sql
+SELECT indexname, idx_scan
+FROM pg_stat_user_indexes
+WHERE idx_scan = 0
+AND indexname NOT LIKE '%_pkey';
+```
+
+**Проверка через Docker:**
+```bash
+docker exec -it webprog_transactions_db psql -U webprog -d webprog
+SELECT indexname, idx_scan FROM pg_stat_user_indexes;
+```
+
+**Запуск примера:**
+```bash
+python code/advanced_indexes.py
 ```
 
 ---
 
 ### Слайд 19: Практическое задание
 
-**Задание 1: Транзакция для перевода**
-- Реализовать перевод между счётами
-- Использовать BEGIN/COMMIT/ROLLBACK
+**Задание 1: Базовые транзакции**
+- Реализовать перевод денег между аккаунтами
+- Использовать BEGIN, COMMIT, ROLLBACK
 - Обработать ошибки
 
-**Задание 2: Гонка данных**
-- Создать сценарий с гонкой
-- Продемонстрировать проблему
-- Решить с SELECT FOR UPDATE
+**Задание 2: Решение гонки данных**
+- Реализовать SELECT FOR UPDATE
+- Реализовать атомарное обновление
+- Сравнить результаты
 
 **Задание 3: Индексы**
-- Создать индексы для частых запросов
-- Проверить с EXPLAIN
-- Измерить производительность
+- Создать индекс на часто используемую колонку
+- Проверить план выполнения с EXPLAIN
+- Измерить разницу в скорости
 
-**Задание 4: N+1 проблема**
-- Создать пример N+1
-- Решить с JOIN
-- Решить с IN
+**Задание 4: Продвинутые транзакции**
+- Реализовать deadlock и обработать его
+- Использовать savepoints для частичного отката
+- Изменить уровень изоляции
 
-**Задание 5: Оптимизация**
-- Найти медленный запрос
-- Добавить индексы
-- Измерить улучшение
+**Задание 5: Продвинутые индексы**
+- Создать partial index
+- Создать functional index
+- Проверить использование индексов через pg_stat_user_indexes
 
 ---
 
 ### Слайд 20: Вопрос для собеседования
 
-**Вопрос:** Объясните, как избежать частичного сохранения и почему конкретный запрос может работать медленно.
+**Вопрос:** Объясните deadlock и как его избежать.
 
 **Ожидаемый ответ:**
-1. Использовать транзакции (BEGIN/COMMIT/ROLLBACK)
-2. При ошибке вызывать ROLLBACK
-3. Медленный запрос может быть из-за:
-   - Отсутствия индекса (проверить EXPLAIN)
-   - N+1 проблемы (использовать JOIN или eager loading)
-   - Полного сканирования таблицы (Seq Scan)
-   - Отсутствия фильтрации
-4. Решения: добавить индексы, оптимизировать запросы, использовать JOIN
+1. Deadlock - когда две транзакции ждут друг друга
+2. PostgreSQL автоматически обнаруживает и прерывает одну
+3. Избегать: всегда блокировать ресурсы в одном порядке
+4. Использовать SELECT FOR UPDATE с таймаутом
+5. Использовать оптимистическую блокировку (version column)
+6. Держать транзакции короткими
